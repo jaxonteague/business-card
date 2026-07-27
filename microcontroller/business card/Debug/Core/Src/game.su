@@ -1,0 +1,4 @@
+../Core/Src/game.c:73:6:Game_Init	8	static
+../Core/Src/game.c:105:13:Update_Game_State	8	static
+../Core/Src/game.c:145:13:Render_Game	16	static
+../Core/Src/game.c:185:6:Game_Task	16	static
