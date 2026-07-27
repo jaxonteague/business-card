@@ -1,0 +1,81 @@
+/*
+ * led.h
+ *
+ *  Created on: 25 July 2026
+ *      Author: Jaxon Teague
+ */
+
+#ifndef INC_LED_H_
+#define INC_LED_H_
+
+#include <stdint.h>
+
+/*
+ * LED matrix dimensions.
+ *
+ * Physical arrangement:
+ *
+ * 8 rows
+ * 16 columns
+ *
+ * Coordinate system:
+ *
+ * x = column (0-15)
+ * y = row    (0-7)
+ */
+#define LED_ROWS           8U
+#define LED_COLUMNS        16U
+#define LED_COUNT          (LED_ROWS * LED_COLUMNS)
+
+/*
+ * XL-1615RGBC-2812B reset time.
+ *
+ * The data line must remain LOW for at least
+ * 200 µs after each frame.
+ */
+#define LED_RESET_TIME_US  200U
+
+/*
+ * Initialise LED driver.
+ *
+ * Clears the framebuffer.
+ * Does not transmit data.
+ */
+void LED_Init(void);
+
+/*
+ * Set an LED colour and brightness using X/Y coordinates.
+ *
+ * x:
+ *   Column number (0-15)
+ *
+ * y:
+ *   Row number (0-7)
+ *
+ * r, g, b:
+ *   Colour components (0-255)
+ *
+ * brightness:
+ *   Brightness scaling (0-255)
+ */
+void LED_SetXY(uint8_t x,
+               uint8_t y,
+               uint8_t r,
+               uint8_t g,
+               uint8_t b,
+               uint8_t brightness);
+
+/*
+ * Encode the framebuffer into WS2812 SPI format
+ * and start the DMA transfer.
+ */
+void LED_Show(void);
+
+/*
+ * Handles LED background tasks.
+ *
+ * Must be called repeatedly from the main loop.
+ */
+void LED_Task(void);
+
+#endif

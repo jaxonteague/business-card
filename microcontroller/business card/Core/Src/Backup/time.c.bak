@@ -1,0 +1,31 @@
+/*
+ * time.c
+ *
+ *  Created on: 26 July 2026
+ *      Author: Jaxon Teague
+ */
+
+
+#include "time.h"
+#include "tim.h"
+
+/*
+ * System time counter.
+ *
+ * Incremented every 1 ms by TIM3 interrupt.
+ */
+volatile uint32_t system_time_ms = 0;
+
+
+/*
+ * HAL timer callback.
+ *
+ * TIM3 is configured as a 1 ms periodic interrupt.
+ */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+    if(htim == &htim3)
+    {
+        system_time_ms++;
+    }
+}

@@ -1,0 +1,254 @@
+/*
+ * led.c
+ *
+ *  Created on: 25 July 2026
+ *      Author: Jaxon Teague
+ */
+
+#include "led.h"
+#include "spi.h"
+#include "time.h"
+
+#include <stdbool.h>
+
+/*
+ * CubeMX generated peripheral handles.
+ */
+extern SPI_HandleTypeDef hspi1;
+
+/*
+ * Framebuffer.
+ *
+ * Stored in physical WS2812 chain order.
+ */
+typedef struct
+{
+    uint8_t r;
+    uint8_t g;
+    uint8_t b;
+    uint8_t brightness;
+
+} LED_t;
+
+static LED_t led[LED_COUNT];
+
+/*
+ * SPI encoded buffer.
+ *
+ * WS2812 bit encoding:
+ *
+ * 0 = 100
+ * 1 = 110
+ *
+ * Buffer size:
+ *
+ * LED_COUNT
+ * × 24 bits
+ * × 3 SPI bits
+ * ÷ 8
+ */
+static uint8_t spi_buffer[LED_COUNT * 24U * 3U / 8U];
+
+/*
+ * Current bit position while encoding.
+ */
+static uint16_t encode_position;
+
+/*
+ * Indicates whether LEDs are waiting for
+ * the required reset/latch time.
+ */
+static bool led_busy = false;
+
+/*
+ * Time when SPI transmission completed.
+ */
+static uint32_t led_reset_start_time;
+
+/*
+ * Convert display coordinates into WS2812 chain index.
+ *
+ * Coordinates:
+ *
+ * x = column (0 = left)
+ * y = row    (0 = top)
+ *
+ * PCB routing:
+ *
+ * y=0 left  -> right
+ * y=1 right -> left
+ * y=2 left  -> right
+ * y=3 right -> left
+ */
+static uint16_t XY_To_Chain_Index(uint8_t x, uint8_t y)
+{
+    if((y & 1U) == 0U)
+    {
+        return (y * LED_COLUMNS) + x;
+    }
+
+    return (y * LED_COLUMNS) +
+           (LED_COLUMNS - 1U - x);
+}
+
+/*
+ * Encode one byte into WS2812 SPI format.
+ */
+static void EncodeByte(uint8_t value)
+{
+    for(int8_t bit = 7; bit >= 0; bit--)
+    {
+        uint8_t encoded;
+
+        if(value & (1U << bit))
+        {
+            encoded = 0b110;
+        }
+        else
+        {
+            encoded = 0b100;
+        }
+
+        for(int8_t i = 2; i >= 0; i--)
+        {
+            if(encoded & (1U << i))
+            {
+                spi_buffer[encode_position / 8U] |=
+                    (1U << (7U - (encode_position % 8U)));
+            }
+
+            encode_position++;
+        }
+    }
+}
+
+/*
+ * Initialise LED driver.
+ */
+void LED_Init(void)
+{
+    for(uint16_t i = 0; i < LED_COUNT; i++)
+    {
+        led[i].r = 0;
+        led[i].g = 0;
+        led[i].b = 0;
+        led[i].brightness = 255;
+    }
+
+    led_busy = false;
+}
+
+/*
+ * Set LED colour and brightness.
+ */
+void LED_SetXY(uint8_t x,
+               uint8_t y,
+               uint8_t r,
+               uint8_t g,
+               uint8_t b,
+               uint8_t brightness)
+{
+    if((x >= LED_COLUMNS) || (y >= LED_ROWS))
+    {
+        return;
+    }
+
+    uint16_t index = XY_To_Chain_Index(x, y);
+
+    led[index].r = r;
+    led[index].g = g;
+    led[index].b = b;
+    led[index].brightness = brightness;
+}
+
+/*
+ * Encode framebuffer and transmit using SPI DMA.
+ */
+void LED_Show(void)
+{
+    /*
+     * Do not start a new frame while the
+     * previous frame is still transmitting
+     * or waiting for reset time.
+     */
+    if(led_busy)
+    {
+        return;
+    }
+
+    led_busy = true;
+
+    /*
+     * Clear previous encoded data.
+     */
+    for(uint16_t i = 0; i < sizeof(spi_buffer); i++)
+    {
+        spi_buffer[i] = 0;
+    }
+
+    encode_position = 0;
+
+    /*
+     * WS2812 colour order:
+     *
+     * Green
+     * Red
+     * Blue
+     */
+    for(uint16_t i = 0; i < LED_COUNT; i++)
+    {
+        uint8_t g =
+            ((uint16_t)led[i].g * led[i].brightness) / 255U;
+
+        uint8_t r =
+            ((uint16_t)led[i].r * led[i].brightness) / 255U;
+
+        uint8_t b =
+            ((uint16_t)led[i].b * led[i].brightness) / 255U;
+
+        EncodeByte(g);
+        EncodeByte(r);
+        EncodeByte(b);
+    }
+
+    HAL_SPI_Transmit_DMA(&hspi1,
+                         spi_buffer,
+                         sizeof(spi_buffer));
+}
+
+/*
+ * LED background task.
+ *
+ * Clears the busy flag after the LEDs have
+ * had enough reset time to latch the frame.
+ */
+void LED_Task(void)
+{
+    if(led_busy)
+    {
+        /*
+         * XL-1615RGBC-2812B requires >200us LOW.
+         *
+         * One system tick = 1ms, so one tick
+         * provides sufficient margin.
+         */
+        if((system_time_ms - led_reset_start_time) >= 1U)
+        {
+            led_busy = false;
+        }
+    }
+}
+
+/*
+ * SPI DMA completion callback.
+ *
+ * The data has been transmitted.
+ * Start the LED reset timer period.
+ */
+void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
+{
+    if(hspi == &hspi1)
+    {
+        led_reset_start_time = system_time_ms;
+    }
+}
