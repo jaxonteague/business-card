@@ -1,304 +1,205 @@
 /*
  * game.c
  *
- * Main game logic
+ * Bird movement and display rendering.
  *
  *  Created on: 26 July 2026
  *      Author: Jaxon Teague
  */
 
-
 #include "game.h"
 #include "led.h"
 #include "config.h"
-#include "stm32c0xx_hal.h" //need this for HAL_GetTick()
+#include "stm32c0xx_hal.h" /* HAL_GetTick() */
 
-#include <stdio.h>
 #include <stdbool.h>
 
 /*
- * Private function prototypes.
+ * The bird position and velocity use four fractional bits. This produces
+ * smoother motion than changing directly between the matrix's eight rows.
  */
-static void Update_Game_State(void);
-static void Render_Game(void);
+#define POSITION_SCALE             16
+#define BIRD_MIN_POSITION          0
+#define BIRD_MAX_POSITION          ((int16_t)((LED_ROWS - 1U) * POSITION_SCALE))
 
-/*
- * Game state variables.
- *
- * These will expand as the game is developed.
- */
-static uint32_t last_update_time;
+static void Update_Game_State(void);
+static void Update_Background_Breathing(void);
+static void Render_Game(void);
 
 typedef struct
 {
-    /*
-     * Player position.
-     */
-    uint8_t player_x;
-    uint8_t player_y;
-
-    /*
-     * Player movement direction.
-     */
-    int8_t player_dx;
-    int8_t player_dy;
-
-    /*
-     * Animation colour.
-     */
-    uint8_t hue;
-
-    /*
-     * Current score.
-     */
-    uint16_t score;
-
-    /*
-     * Game running.
-     */
-    bool active;
+    int16_t bird_position;
+    int16_t bird_velocity;
 
     int8_t brightness_step;
     uint8_t background_brightness;
     uint8_t breathing_counter;
-    uint8_t colour_phase;
-    uint8_t player_move_counter;
-
 } Game_State_t;
 
-
-/*
- * Current game instance.
- */
 static Game_State_t game;
 
+/* Set by the EXTI callback and consumed by Game_Task(). */
+static volatile bool flap_requested;
 
-/*
- * Initialise game state.
- */
+/* SysTick value at which the latest frame was accepted for transmission. */
+static uint32_t last_update_time;
+
 void Game_Init(void)
 {
-    /*
-     * Initialise game state.
-     */
-	game.player_x = 0;
-	game.player_y = 0;
-	game.player_dx = 1;
-	game.player_dy = 1;
-	game.hue = 0;
+    game.bird_position = PLAYER_START_Y * POSITION_SCALE;
+    game.bird_velocity = 0;
+    game.background_brightness = BACKGROUND_BRIGHTNESS_MIN;
+    game.brightness_step = 1;
+    game.breathing_counter = 0;
+    flap_requested = false;
 
-	game.background_brightness = 1;
-	game.brightness_step = 1;
-	game.breathing_counter = 0;
-	game.colour_phase = 0;
-	game.player_move_counter = 0;
-
-    /*
-     * Render and display the initial game state before
-     * the first scheduled update.
-     */
     Render_Game();
 
     while(!LED_Transmit())
     {
+        /* DMA should be idle at startup; wait if the driver is not ready yet. */
     }
 
     last_update_time = HAL_GetTick();
 }
 
+void Game_ButtonPressed(void)
+{
+    /*
+     * Keep interrupt work short. A boolean is sufficient because multiple
+     * presses before the next 16 ms game update should produce one flap.
+     */
+    flap_requested = true;
+}
 
 static void Update_Game_State(void)
 {
-	/*
-	 * Move player every 4 frames.
-	 */
-	game.player_move_counter++;
+    /*
+     * The interrupt only sets this flag; all physics remains in the main loop.
+     * Clear it after consuming the pending flap request.
+     */
+    if(flap_requested)
+    {
+        flap_requested = false;
+        game.bird_velocity = BIRD_FLAP_VELOCITY;
+    }
 
-	if(game.player_move_counter >= 4)
-	{
-	    game.player_move_counter = 0;
+    /* Positive velocity moves down the matrix; gravity accelerates downward. */
+    game.bird_velocity += BIRD_GRAVITY;
 
-	    game.player_x += game.player_dx;
-	    game.player_y += game.player_dy;
+    if(game.bird_velocity > BIRD_TERMINAL_VELOCITY)
+    {
+        game.bird_velocity = BIRD_TERMINAL_VELOCITY;
+    }
 
-	    if(game.player_x == 0 ||
-	       game.player_x == (LED_COLUMNS - 1))
-	    {
-	        game.player_dx = -game.player_dx;
-	    }
-
-	    if(game.player_y == 0 ||
-	       game.player_y == (LED_ROWS - 1))
-	    {
-	        game.player_dy = -game.player_dy;
-	    }
-	}
+    game.bird_position += game.bird_velocity;
 
     /*
-     * Slow breathing effect.
-     *
-     * Update brightness once every 8 frames.
-     * At 16 ms per frame, one full breath takes
-     * approximately 4.9 seconds.
+     * Clamp at the display boundaries for this early game stage. Collision
+     * and game-over handling can replace these clamps when pipes are added.
+     */
+    if(game.bird_position < BIRD_MIN_POSITION)
+    {
+        game.bird_position = BIRD_MIN_POSITION;
+        game.bird_velocity = 0;
+    }
+    else if(game.bird_position > BIRD_MAX_POSITION)
+    {
+        game.bird_position = BIRD_MAX_POSITION;
+        game.bird_velocity = 0;
+    }
+
+    Update_Background_Breathing();
+}
+
+static void Update_Background_Breathing(void)
+{
+    /*
+     * Change brightness less often than the physics update so the purple
+     * background fades slowly without affecting the bird brightness.
      */
     game.breathing_counter++;
 
-    if(game.breathing_counter >= 8)
+    if(game.breathing_counter < BACKGROUND_BREATHING_DIVIDER)
     {
-        game.breathing_counter = 0;
+        return;
+    }
 
-        if(game.brightness_step > 0)
+    game.breathing_counter = 0;
+
+    if(game.brightness_step > 0)
+    {
+        if(game.background_brightness >= BACKGROUND_BRIGHTNESS_MAX)
         {
-            if(game.background_brightness >= 20)
-            {
-                game.background_brightness = 20;
-                game.brightness_step = -1;
-            }
-            else
-            {
-                game.background_brightness++;
-            }
+            game.background_brightness = BACKGROUND_BRIGHTNESS_MAX;
+            game.brightness_step = -1;
         }
         else
         {
-            if(game.background_brightness <= 1)
-            {
-                game.background_brightness = 1;
-                game.brightness_step = 1;
-            }
-            else
-            {
-                game.background_brightness--;
-            }
+            game.background_brightness++;
         }
     }
-
-    /*
-     * Slowly rotate through the colour spectrum.
-     */
-    game.colour_phase++;
-}
-
-
-static void Get_Background_Colour(
-    uint8_t phase,
-    uint8_t *red,
-    uint8_t *green,
-    uint8_t *blue
-)
-{
-    uint8_t section;
-    uint8_t offset;
-
-    section = phase / 43;
-    offset = (phase % 43) * 6;
-
-    switch(section)
+    else
     {
-        case 0:
-            *red = 255;
-            *green = offset;
-            *blue = 0;
-            break;
-
-        case 1:
-            *red = 255 - offset;
-            *green = 255;
-            *blue = 0;
-            break;
-
-        case 2:
-            *red = 0;
-            *green = 255;
-            *blue = offset;
-            break;
-
-        case 3:
-            *red = 0;
-            *green = 255 - offset;
-            *blue = 255;
-            break;
-
-        case 4:
-            *red = offset;
-            *green = 0;
-            *blue = 255;
-            break;
-
-        default:
-            *red = 255;
-            *green = 0;
-            *blue = 255 - offset;
-            break;
+        if(game.background_brightness <= BACKGROUND_BRIGHTNESS_MIN)
+        {
+            game.background_brightness = BACKGROUND_BRIGHTNESS_MIN;
+            game.brightness_step = 1;
+        }
+        else
+        {
+            game.background_brightness--;
+        }
     }
 }
 
-/*
- * Render current game state.
- */
 static void Render_Game(void)
 {
-    uint8_t x;
-    uint8_t y;
-    uint8_t red;
-    uint8_t green;
-    uint8_t blue;
-
-    LED_Clear();
-
-    Get_Background_Colour(
-        game.colour_phase,
-        &red,
-        &green,
-        &blue
-    );
-
     /*
-     * Slowly changing colour with breathing brightness.
+     * Fill uses logical RGB values plus a low brightness scale, producing a
+     * dim purple background without repeated per-pixel drawing calls.
      */
-    for(y = 0; y < LED_ROWS; y++)
-    {
-        for(x = 0; x < LED_COLUMNS; x++)
-        {
-            LED_DrawPixel(
-                x,
-                y,
-                red,
-                green,
-                blue,
-                game.background_brightness
-            );
-        }
-    }
+    LED_Fill(BACKGROUND_RED,
+             BACKGROUND_GREEN,
+             BACKGROUND_BLUE,
+             game.background_brightness);
 
-    LED_DrawPixel(
-        game.player_x,
-        game.player_y,
-        255 - red,
-        255 - green,
-        255 - blue,
-        31
-    );
+    /* Round the fixed-point position to the nearest physical LED row. */
+    uint8_t bird_y =
+        (uint8_t)((game.bird_position + (POSITION_SCALE / 2)) / POSITION_SCALE);
+
+    LED_DrawPixel(PLAYER_START_X,
+                  bird_y,
+                  BIRD_RED,
+                  BIRD_GREEN,
+                  BIRD_BLUE,
+                  BIRD_BRIGHTNESS);
 }
 
-
-/*
- * Main game task.
- */
 void Game_Task(void)
 {
     uint32_t current_time = HAL_GetTick();
 
+    /* Unsigned subtraction remains correct when the 32-bit HAL tick wraps. */
     if((current_time - last_update_time) < GAME_UPDATE_PERIOD_MS)
     {
         return;
     }
 
+    /*
+     * Do not advance physics while the previous framebuffer is still being
+     * transmitted. This keeps motion tied to frames visible on the LEDs.
+     */
+    if(!LED_IsReady())
+    {
+        return;
+    }
+
+    Update_Game_State();
     Render_Game();
 
     if(LED_Transmit())
     {
         last_update_time = current_time;
-        Update_Game_State();
     }
 }

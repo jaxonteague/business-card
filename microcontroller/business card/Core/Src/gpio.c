@@ -47,7 +47,11 @@ void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
-  /*Configure GPIO pin : Button_Pin */
+  /*
+   * Active-low push button. The PCB supplies the pull-up resistor and RC
+   * debounce network, so no internal pull is enabled. A press generates
+   * an interrupt on the falling edge.
+   */
   GPIO_InitStruct.Pin = Button_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
