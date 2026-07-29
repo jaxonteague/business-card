@@ -19,7 +19,7 @@
  *
  * 16ms gives approximately 60 FPS.
  */
-#define GAME_UPDATE_PERIOD_MS    20U//16U
+#define GAME_UPDATE_PERIOD_MS    16U//16U
 
 
 #define LED_DEFAULT_BRIGHTNESS   255U

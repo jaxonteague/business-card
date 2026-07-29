@@ -1,4 +1,5 @@
-../Core/Src/game.c:73:6:Game_Init	8	static
-../Core/Src/game.c:105:13:Update_Game_State	8	static
-../Core/Src/game.c:145:13:Render_Game	16	static
-../Core/Src/game.c:185:6:Game_Task	16	static
+../Core/Src/game.c:79:6:Game_Init	8	static
+../Core/Src/game.c:110:13:Update_Game_State	8	static
+../Core/Src/game.c:183:13:Get_Background_Colour	48	static
+../Core/Src/game.c:239:13:Render_Game	40	static
+../Core/Src/game.c:288:6:Game_Task	16	static
