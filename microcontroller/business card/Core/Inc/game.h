@@ -30,4 +30,12 @@ void Game_Init(void);
  */
 void Game_Task(void);
 
+/*
+ * Record an active-low button press.
+ *
+ * Safe to call from HAL_GPIO_EXTI_Falling_Callback(); the actual physics
+ * update is deferred until Game_Task() runs in the main loop.
+ */
+void Game_ButtonPressed(void);
+
 #endif /* INC_GAME_H_ */

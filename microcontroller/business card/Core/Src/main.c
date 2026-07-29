@@ -98,12 +98,6 @@ int main(void)
   LED_Init();
   Game_Init();
 
-  /* Turn on a few test LEDs */
-  //LED_SetXY(0, 0, 255, 0, 0, 255);   // Full-brightness red
-  //LED_SetXY(1, 0, 255, 0, 0, 64);    // Dim red
-  //LED_SetXY(2, 0, 0, 0, 255, 128);   // Half-bright blue
-  //LED_Show();
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -111,6 +105,7 @@ int main(void)
   while (1)
   {
 
+      /* Cooperative, non-blocking game and display update. */
 	  Game_Task();
 
 
@@ -160,6 +155,14 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
+{
+  if (GPIO_Pin == Button_Pin)
+  {
+    Game_ButtonPressed();
+  }
+}
 
 /* USER CODE END 4 */
 

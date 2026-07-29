@@ -11,13 +11,6 @@
 #include <stdbool.h>
 #include <string.h>
 
-//#define RESET_BYTES 32U
-
-/*
- * CubeMX generated peripheral handles.
- */
-extern SPI_HandleTypeDef hspi1;
-
 /*
  * LED framebuffer.
  *
@@ -43,15 +36,12 @@ static LED_t led[LED_COUNT];
  *
  * WS2812 bit encoding:
  *
- * 0 = 100
- * 1 = 110
+ * 0 = 1000
+ * 1 = 1110
  *
- * Buffer size:
- *
- * LED_COUNT
- * × 24 bits
- * × 3 SPI bits
- * ÷ 8
+ * Buffer size is LED_COUNT x 24 LED bits x
+ * LED_SPI_BITS_PER_LED_BIT / 8. LED_RESET_BYTES zero
+ * bytes are appended to provide the low latch interval.
  */
 static uint8_t spi_buffer[
     (LED_COUNT * 24U * LED_SPI_BITS_PER_LED_BIT) / 8U +
@@ -86,6 +76,7 @@ static volatile uint32_t led_next_transmit_time = 0U;
  * y=1 right -> left
  * y=2 left  -> right
  * y=3 right -> left
+ * ...and so on for all eight rows.
  */
 static uint16_t XY_To_Chain_Index(uint8_t x, uint8_t y)
 {
@@ -134,6 +125,7 @@ static void EncodeByte(uint8_t value)
  */
 void LED_Init(void)
 {
+    /* Start with every pixel off at full per-pixel scale. */
     for(uint16_t i = 0; i < LED_COUNT; i++)
     {
         led[i].r = 0;
@@ -161,24 +153,13 @@ void LED_DrawPixel(uint8_t x,
                    uint8_t blue,
                    uint8_t brightness)
 {
-    uint16_t led_index;
-
     if((x >= LED_COLUMNS) || (y >= LED_ROWS))
     {
         return;
     }
 
-    if((y & 1U) == 0U)
-    {
-        /* Even row: left to right */
-        led_index = ((uint16_t)y * LED_COLUMNS) + x;
-    }
-    else
-    {
-        /* Odd row: right to left */
-        led_index = ((uint16_t)y * LED_COLUMNS)
-                  + (LED_COLUMNS - 1U - x);
-    }
+    /* Hide the serpentine wiring from all drawing code. */
+    uint16_t led_index = XY_To_Chain_Index(x, y);
 
     led[led_index].r = red;
     led[led_index].g = green;
@@ -228,15 +209,16 @@ bool LED_Transmit(void)
     /*
      * Clear previous encoded data, including reset bytes.
      */
-    for(uint16_t i = 0U; i < sizeof(spi_buffer); i++)
-    {
-        spi_buffer[i] = 0U;
-    }
+    memset(spi_buffer, 0, sizeof(spi_buffer));
 
     encode_position = 0U;
 
     for(uint16_t i = 0U; i < LED_COUNT; i++)
     {
+        /*
+         * Apply brightness only while encoding. The framebuffer retains the
+         * original colour values, avoiding cumulative rounding loss.
+         */
         uint8_t g =
             ((uint16_t)led[i].g * led[i].brightness) / 255U;
 
@@ -321,6 +303,10 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
 
 void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
 {
+    /*
+     * Development-time trap. Production firmware should record the error,
+     * release the driver state, and recover or reset instead.
+     */
     volatile uint32_t err = HAL_SPI_GetError(hspi);
 
     __BKPT(0);

@@ -56,6 +56,10 @@
  */
 #define LED_RESET_DELAY_MS    1U
 
+/*
+ * At a 3 MHz SPI clock, 128 zero bytes hold MOSI low for about
+ * 341 µs, exceeding the device's reset/latch minimum.
+ */
 #define LED_RESET_BYTES    128U
 
 /*
@@ -116,6 +120,11 @@ void LED_DrawPixel(uint8_t x,
  * WS2812 reset/latch period.
  */
 bool LED_Transmit(void);
+
+/*
+ * Return true when DMA is idle and the reset/latch interval has elapsed.
+ */
+bool LED_IsReady(void);
 
 
 /*
