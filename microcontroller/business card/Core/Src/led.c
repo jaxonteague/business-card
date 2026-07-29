@@ -54,9 +54,9 @@ static LED_t led[LED_COUNT];
  * ÷ 8
  */
 static uint8_t spi_buffer[
-	(LED_COUNT * 24U * LED_SPI_BITS_PER_LED_BIT) / 8U
+    (LED_COUNT * 24U * LED_SPI_BITS_PER_LED_BIT) / 8U +
+    LED_RESET_BYTES
 ];
-//+ RESET_BYTES
 
 
 /*
@@ -69,7 +69,8 @@ static uint16_t encode_position;
  *
  * Uses the 1 ms SysTick timer.
  */
-static uint32_t led_next_transmit_time = 0;
+static volatile bool led_transmitting = false;
+static volatile uint32_t led_next_transmit_time = 0U;
 
 /*
  * Convert display coordinates into WS2812 chain index.
@@ -154,32 +155,49 @@ void LED_Init(void)
  * Call LED_Transmit() to update the LEDs.
  */
 void LED_DrawPixel(uint8_t x,
-               uint8_t y,
-               uint8_t r,
-               uint8_t g,
-               uint8_t b,
-               uint8_t brightness)
+                   uint8_t y,
+                   uint8_t red,
+                   uint8_t green,
+                   uint8_t blue,
+                   uint8_t brightness)
 {
+    uint16_t led_index;
+
     if((x >= LED_COLUMNS) || (y >= LED_ROWS))
     {
         return;
     }
 
-    uint16_t index = XY_To_Chain_Index(x, y);
+    if((y & 1U) == 0U)
+    {
+        /* Even row: left to right */
+        led_index = ((uint16_t)y * LED_COLUMNS) + x;
+    }
+    else
+    {
+        /* Odd row: right to left */
+        led_index = ((uint16_t)y * LED_COLUMNS)
+                  + (LED_COLUMNS - 1U - x);
+    }
 
-    led[index].r = r;
-    led[index].g = g;
-    led[index].b = b;
-    led[index].brightness = brightness;
+    led[led_index].r = red;
+    led[led_index].g = green;
+    led[led_index].b = blue;
+    led[led_index].brightness = brightness;
 }
 
 /*
- * Returns true when the WS2812 reset time has elapsed
- * and another frame may be transmitted.
+ * Return true when no DMA transfer is active and the
+ * WS2812 reset delay has elapsed.
  */
 bool LED_IsReady(void)
 {
-    return (HAL_GetTick() >= led_next_transmit_time);
+    if(led_transmitting)
+    {
+        return false;
+    }
+
+    return ((int32_t)(HAL_GetTick() - led_next_transmit_time) >= 0);
 }
 
 /*
@@ -200,23 +218,24 @@ bool LED_Transmit(void)
     }
 
     /*
-     * Clear previous encoded data.
+     * Reserve the SPI buffer before clearing or encoding it.
+     *
+     * This prevents another call from modifying the buffer
+     * while DMA is transmitting the current frame.
      */
-    for(uint16_t i = 0; i < sizeof(spi_buffer); i++)
-    {
-        spi_buffer[i] = 0;
-    }
-
-    encode_position = 0;
+    led_transmitting = true;
 
     /*
-     * WS2812 colour order:
-     *
-     * Green
-     * Red
-     * Blue
+     * Clear previous encoded data, including reset bytes.
      */
-    for(uint16_t i = 0; i < LED_COUNT; i++)
+    for(uint16_t i = 0U; i < sizeof(spi_buffer); i++)
+    {
+        spi_buffer[i] = 0U;
+    }
+
+    encode_position = 0U;
+
+    for(uint16_t i = 0U; i < LED_COUNT; i++)
     {
         uint8_t g =
             ((uint16_t)led[i].g * led[i].brightness) / 255U;
@@ -232,20 +251,22 @@ bool LED_Transmit(void)
         EncodeByte(b);
     }
 
-    HAL_StatusTypeDef status;
-
-    status = HAL_SPI_Transmit_DMA(&hspi1,
-                                  spi_buffer,
-                                  sizeof(spi_buffer));
+    HAL_StatusTypeDef status =
+        HAL_SPI_Transmit_DMA(&hspi1,
+                             spi_buffer,
+                             sizeof(spi_buffer));
 
     if(status != HAL_OK)
     {
+        /*
+         * DMA did not start, so release the driver.
+         */
+        led_transmitting = false;
         return false;
     }
 
     return true;
 }
-
 /*
  * Clear the LED framebuffer.
  */
@@ -279,17 +300,28 @@ void LED_Fill(uint8_t r,
 
 
 /*
- * SPI DMA complete.
- *
- * The WS2812 requires the data line to remain LOW for
- * at least 200 µs before another frame is transmitted.
- *
- * Using the 1 ms SysTick provides ample margin.
+ * SPI DMA transmission complete callback.
  */
 void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
 {
     if(hspi == &hspi1)
     {
-        led_next_transmit_time = HAL_GetTick() + LED_RESET_DELAY_MS;
+        /*
+         * The encoded buffer is no longer being read by DMA.
+         */
+        led_transmitting = false;
+
+        /*
+         * Earliest time at which another frame may start.
+         */
+        led_next_transmit_time =
+            HAL_GetTick() + LED_RESET_DELAY_MS;
     }
+}
+
+void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
+{
+    volatile uint32_t err = HAL_SPI_GetError(hspi);
+
+    __BKPT(0);
 }

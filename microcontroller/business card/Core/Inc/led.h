@@ -1,7 +1,7 @@
 /*
  * led.h
  *
- *LED frambuffer and WS2812 driver interface
+ *LED framebuffer and WS2812 driver interface
  *
  *  Created on: 25 July 2026
  *      Author: Jaxon Teague
@@ -55,6 +55,8 @@
  * ample timing margin.
  */
 #define LED_RESET_DELAY_MS    1U
+
+#define LED_RESET_BYTES    128U
 
 /*
  * Initialise LED driver.
