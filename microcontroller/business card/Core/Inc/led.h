@@ -1,10 +1,9 @@
-/*
- * led.h
+/**
+ * @file led.h
+ * @brief Public interface for the LED framebuffer and WS2812 driver.
  *
- *LED framebuffer and WS2812 driver interface
- *
- *  Created on: 25 July 2026
- *      Author: Jaxon Teague
+ * Created on: 25 July 2026
+ * Author: Jaxon Teague
  */
 
 #ifndef INC_LED_H_
@@ -62,44 +61,20 @@
  */
 #define LED_RESET_BYTES    128U
 
-/*
- * Initialise LED driver.
- *
- * Clears the framebuffer.
- * Does not transmit data.
+/**
+ * @brief Initialize the framebuffer with all pixels off.
  */
 void LED_Init(void);
 
-/*
- * Draw a pixel into the LED framebuffer.
+/**
+ * @brief Store one pixel in the framebuffer without transmitting it.
  *
- * The framebuffer uses an X/Y coordinate
- * system matching the physical LED matrix.
- *
- * Coordinates:
- *
- * x:
- *   Column number (0-15)
- *
- * y:
- *   Row number (0-7)
- *
- * Colour:
- *
- * r:
- *   Red intensity (0-255)
- *
- * g:
- *   Green intensity (0-255)
- *
- * b:
- *   Blue intensity (0-255)
- *
- * brightness:
- *   Per-pixel brightness scaling (0-255)
- *
- * The pixel is not updated on the physical
- * LEDs until LED_Transmit() is called.
+ * @param x Column in the range 0 to LED_COLUMNS - 1.
+ * @param y Row in the range 0 to LED_ROWS - 1.
+ * @param r Red intensity from 0 to 255.
+ * @param g Green intensity from 0 to 255.
+ * @param b Blue intensity from 0 to 255.
+ * @param brightness Per-pixel brightness scale from 0 to 255.
  */
 void LED_DrawPixel(uint8_t x,
                uint8_t y,
@@ -109,43 +84,41 @@ void LED_DrawPixel(uint8_t x,
                uint8_t brightness);
 
 
-/*
- * Transmit the LED framebuffer.
+/**
+ * @brief Encode the framebuffer and start a non-blocking SPI DMA transfer.
  *
- * Converts the stored RGB values into the
- * WS2812 SPI waveform format and starts a
- * DMA transfer.
+ * Converts the stored RGB values into the WS2812 SPI waveform format and
+ * starts a DMA transfer. The physical LEDs update after the reset/latch period.
  *
- * The physical LEDs update after the
- * WS2812 reset/latch period.
+ * @return true if DMA accepted the frame, otherwise false.
  */
 bool LED_Transmit(void);
 
-/*
- * Return true when DMA is idle and the reset/latch interval has elapsed.
+/**
+ * @brief Check whether the driver can accept another frame.
+ *
+ * @return true when DMA is idle and the reset/latch interval has elapsed.
  */
 bool LED_IsReady(void);
 
 
-/*
- * Clear the entire LED framebuffer.
- *
- * Sets all pixels to black.
- *
- * Does not transmit data.
+/**
+ * @brief Set every framebuffer pixel to black without transmitting it.
  */
 void LED_Clear(void);
 
 
-/*
- * Fill the entire LED framebuffer
- * with one colour.
+/**
+ * @brief Fill the framebuffer with one colour without transmitting it.
  *
- * Does not transmit data.
+ * @param r Red intensity from 0 to 255.
+ * @param g Green intensity from 0 to 255.
+ * @param b Blue intensity from 0 to 255.
+ * @param brightness Per-pixel brightness scale from 0 to 255.
  */
 void LED_Fill(uint8_t r,
               uint8_t g,
               uint8_t b,
               uint8_t brightness);
 
-#endif
+#endif /* INC_LED_H_ */

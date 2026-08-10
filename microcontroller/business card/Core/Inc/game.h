@@ -1,37 +1,30 @@
-/*
- * game.h
+/**
+ * @file game.h
+ * @brief Public interface for game initialization, input, and frame updates.
  *
- *  Game logic interface
- *
- *  Created on: 26 July 2026
- *      Author: Jaxon Teague
+ * Created on: 26 July 2026
+ * Author: Jaxon Teague
  */
 
 #ifndef INC_GAME_H_
 #define INC_GAME_H_
 
-/*
- * Initialise game variables.
+/**
+ * @brief Initialize game state and display the initial frame.
  *
- * Called once during startup.
+ * Call once after the LED and HAL peripherals have been initialized.
  */
 void Game_Init(void);
 
-
-/*
- * Main game processing function.
+/**
+ * @brief Process frame timing, game physics, and rendering without blocking.
  *
- * Called continuously from main loop.
- *
- * Handles:
- * - Game timing
- * - Game state updates
- * - Rendering
+ * Call continuously from the main loop.
  */
 void Game_Task(void);
 
-/*
- * Record an active-low button press.
+/**
+ * @brief Record an active-low button press for the next game update.
  *
  * Safe to call from HAL_GPIO_EXTI_Falling_Callback(); the actual physics
  * update is deferred until Game_Task() runs in the main loop.

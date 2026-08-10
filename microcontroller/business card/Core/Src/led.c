@@ -1,8 +1,9 @@
-/*
- * led.c
+/**
+ * @file led.c
+ * @brief Implements the framebuffer and DMA-driven WS2812 SPI encoder.
  *
- *  Created on: 25 July 2026
- *      Author: Jaxon Teague
+ * Created on: 25 July 2026
+ * Author: Jaxon Teague
  */
 
 #include "led.h"
@@ -11,33 +12,26 @@
 #include <stdbool.h>
 #include <string.h>
 
-/*
- * LED framebuffer.
- *
- * Stores the desired display state.
- *
- * Data is stored internally in physical
- * WS2812 chain order, but accessed using
- * display X/Y coordinates.
- */
+/* One logical pixel before brightness scaling and wire-format encoding. */
 typedef struct
 {
-    uint8_t r;
-    uint8_t g;
-    uint8_t b;
-    uint8_t brightness;
+    uint8_t r;           /* Unscaled red intensity. */
+    uint8_t g;           /* Unscaled green intensity. */
+    uint8_t b;           /* Unscaled blue intensity. */
+    uint8_t brightness;  /* Per-pixel scale applied during transmission. */
 
 } LED_t;
 
+/* Framebuffer stored in physical WS2812 chain order. */
 static LED_t led[LED_COUNT];
 
 /*
- * SPI encoded buffer.
+ * DMA source buffer containing the complete encoded WS2812 frame.
  *
  * WS2812 bit encoding:
  *
- * 0 = 1000
- * 1 = 1110
+ *   logical 0 -> 1000
+ *   logical 1 -> 1110
  *
  * Buffer size is LED_COUNT x 24 LED bits x
  * LED_SPI_BITS_PER_LED_BIT / 8. LED_RESET_BYTES zero
@@ -49,37 +43,27 @@ static uint8_t spi_buffer[
 ];
 
 
-/*
- * Current bit position while encoding.
- */
+/* Next SPI bit to write into spi_buffer while constructing a frame. */
 static uint16_t encode_position;
 
-/*
- * Earliest time that another LED transmission may begin.
- *
- * Uses the 1 ms SysTick timer.
- */
+/* Set while DMA owns spi_buffer; changed by both main and interrupt contexts. */
 static volatile bool led_transmitting = false;
+
+/* First HAL tick at which the WS2812 reset interval has fully elapsed. */
 static volatile uint32_t led_next_transmit_time = 0U;
 
-/*
- * Convert display coordinates into WS2812 chain index.
+/**
+ * @brief Convert matrix coordinates to the physical serpentine chain index.
  *
- * Coordinates:
+ * Even rows run left-to-right and odd rows run right-to-left on the PCB.
  *
- * x = column (0 = left)
- * y = row    (0 = top)
- *
- * PCB routing:
- *
- * y=0 left  -> right
- * y=1 right -> left
- * y=2 left  -> right
- * y=3 right -> left
- * ...and so on for all eight rows.
+ * @param x Zero-based column measured from the left.
+ * @param y Zero-based row measured from the top.
+ * @return Zero-based LED index in physical chain order.
  */
 static uint16_t XY_To_Chain_Index(uint8_t x, uint8_t y)
 {
+    /* Even rows follow coordinate order; odd rows reverse the column index. */
     if((y & 1U) == 0U)
     {
         return (y * LED_COLUMNS) + x;
@@ -89,13 +73,17 @@ static uint16_t XY_To_Chain_Index(uint8_t x, uint8_t y)
            (LED_COLUMNS - 1U - x);
 }
 
-/*
- * Encode one byte into WS2812 SPI format.
+/**
+ * @brief Append one byte to the SPI buffer using four SPI bits per WS2812 bit.
+ *
+ * @param value Byte to encode, most-significant bit first.
  */
 static void EncodeByte(uint8_t value)
 {
+    /* WS2812 sends the most-significant bit of each colour byte first. */
     for(int8_t bit = 7; bit >= 0; bit--)
     {
+        /* Four-bit SPI symbol representing the current logical WS2812 bit. */
         uint8_t encoded;
 
         if(value & (1U << bit))
@@ -107,6 +95,7 @@ static void EncodeByte(uint8_t value)
             encoded = LED_SPI_ZERO;
         }
 
+        /* Pack the symbol into spi_buffer without assuming byte alignment. */
         for(int8_t i = (LED_SPI_BITS_PER_LED_BIT - 1); i >= 0; i--)
         {
             if(encoded & (1U << i))
@@ -120,8 +109,8 @@ static void EncodeByte(uint8_t value)
     }
 }
 
-/*
- * Initialise LED driver.
+/**
+ * @brief Initialize every framebuffer pixel to off at full brightness scale.
  */
 void LED_Init(void)
 {
@@ -136,15 +125,15 @@ void LED_Init(void)
 
 }
 
-/*
- * Draw a pixel into the LED framebuffer.
+/**
+ * @brief Store one pixel in the framebuffer without starting transmission.
  *
- * Converts the display X/Y coordinate into
- * the physical WS2812 chain index and stores
- * the colour information.
- *
- * This function does not transmit data.
- * Call LED_Transmit() to update the LEDs.
+ * @param x Zero-based matrix column.
+ * @param y Zero-based matrix row.
+ * @param red Unscaled red intensity.
+ * @param green Unscaled green intensity.
+ * @param blue Unscaled blue intensity.
+ * @param brightness Per-pixel brightness scale from 0 to 255.
  */
 void LED_DrawPixel(uint8_t x,
                    uint8_t y,
@@ -158,7 +147,7 @@ void LED_DrawPixel(uint8_t x,
         return;
     }
 
-    /* Hide the serpentine wiring from all drawing code. */
+    /* Translate logical coordinates so callers need not know the PCB routing. */
     uint16_t led_index = XY_To_Chain_Index(x, y);
 
     led[led_index].r = red;
@@ -167,9 +156,10 @@ void LED_DrawPixel(uint8_t x,
     led[led_index].brightness = brightness;
 }
 
-/*
- * Return true when no DMA transfer is active and the
- * WS2812 reset delay has elapsed.
+/**
+ * @brief Report whether a new frame can safely reuse the SPI buffer.
+ *
+ * @return true when DMA is idle and the reset/latch interval has elapsed.
  */
 bool LED_IsReady(void)
 {
@@ -178,18 +168,14 @@ bool LED_IsReady(void)
         return false;
     }
 
+    /* Signed tick comparison remains correct across wrap for short delays. */
     return ((int32_t)(HAL_GetTick() - led_next_transmit_time) >= 0);
 }
 
-/*
- * Transmit the LED framebuffer.
+/**
+ * @brief Encode the framebuffer and begin a non-blocking SPI DMA transfer.
  *
- * Converts the stored RGB values into the
- * WS2812 SPI waveform format and starts
- * a DMA transfer.
- *
- * The physical LEDs are updated after the
- * WS2812 reset/latch period.
+ * @return true if DMA accepted the frame, otherwise false.
  */
 bool LED_Transmit(void)
 {
@@ -249,8 +235,8 @@ bool LED_Transmit(void)
 
     return true;
 }
-/*
- * Clear the LED framebuffer.
+/**
+ * @brief Set every framebuffer pixel to black without transmitting it.
  */
 void LED_Clear(void)
 {
@@ -263,8 +249,13 @@ void LED_Clear(void)
     }
 }
 
-/*
- * Fill the LED framebuffer with one colour.
+/**
+ * @brief Fill the framebuffer with one colour and brightness value.
+ *
+ * @param r Red intensity applied to every pixel.
+ * @param g Green intensity applied to every pixel.
+ * @param b Blue intensity applied to every pixel.
+ * @param brightness Brightness scale applied to every pixel.
  */
 void LED_Fill(uint8_t r,
               uint8_t g,
@@ -301,6 +292,9 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
     }
 }
 
+/*
+ * Handle an SPI transmission error by stopping in the debugger.
+ */
 void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
 {
     /*
