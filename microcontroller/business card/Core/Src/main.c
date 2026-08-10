@@ -105,7 +105,6 @@ int main(void)
   while (1)
   {
 
-      /* Cooperative, non-blocking game and display update. */
 	  Game_Task();
 
 
@@ -156,8 +155,13 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
+/**
+  * @brief Forward falling-edge button interrupts to the game input queue.
+  * @param GPIO_Pin Pin mask supplied by the HAL EXTI dispatcher.
+  */
 void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
 {
+  /* Ignore unrelated EXTI sources that may share the callback. */
   if (GPIO_Pin == Button_Pin)
   {
     Game_ButtonPressed();

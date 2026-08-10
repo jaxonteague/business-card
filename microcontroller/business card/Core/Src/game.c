@@ -1,10 +1,9 @@
-/*
- * game.c
+/**
+ * @file game.c
+ * @brief Implements bird physics, background animation, and frame rendering.
  *
- * Bird movement and display rendering.
- *
- *  Created on: 26 July 2026
- *      Author: Jaxon Teague
+ * Created on: 26 July 2026
+ * Author: Jaxon Teague
  */
 
 #include "game.h"
@@ -28,22 +27,26 @@ static void Render_Game(void);
 
 typedef struct
 {
-    int16_t bird_position;
-    int16_t bird_velocity;
+    int16_t bird_position;          /* Vertical position in fixed-point units. */
+    int16_t bird_velocity;          /* Signed vertical speed per game update. */
 
-    int8_t brightness_step;
-    uint8_t background_brightness;
-    uint8_t breathing_counter;
+    int8_t brightness_step;         /* +1 while brightening, -1 while dimming. */
+    uint8_t background_brightness;  /* Current background brightness scale. */
+    uint8_t breathing_counter;      /* Divides the game rate for a slower fade. */
 } Game_State_t;
 
+/* Complete mutable state for the current game session. */
 static Game_State_t game;
 
-/* Set by the EXTI callback and consumed by Game_Task(). */
+/* Interrupt-to-main-loop flag; volatile because the EXTI callback writes it. */
 static volatile bool flap_requested;
 
-/* SysTick value at which the latest frame was accepted for transmission. */
+/* HAL tick when the most recent frame was accepted by the LED driver. */
 static uint32_t last_update_time;
 
+/**
+ * @brief Reset game state, render the initial frame, and start LED output.
+ */
 void Game_Init(void)
 {
     game.bird_position = PLAYER_START_Y * POSITION_SCALE;
@@ -57,21 +60,30 @@ void Game_Init(void)
 
     while(!LED_Transmit())
     {
-        /* DMA should be idle at startup; wait if the driver is not ready yet. */
+        /* Startup must display the initial frame before normal updates begin. */
     }
 
     last_update_time = HAL_GetTick();
 }
 
+/**
+ * @brief Queue one flap for processing during the next game update.
+ *
+ * This function is safe to call from the GPIO interrupt callback because it
+ * only sets a flag; physics and rendering remain in the main-loop context.
+ */
 void Game_ButtonPressed(void)
 {
     /*
-     * Keep interrupt work short. A boolean is sufficient because multiple
-     * presses before the next 16 ms game update should produce one flap.
+     * A boolean is sufficient because multiple presses before the next 16 ms
+     * game update should produce one flap.
      */
     flap_requested = true;
 }
 
+/**
+ * @brief Apply queued input, advance bird physics, and update the background.
+ */
 static void Update_Game_State(void)
 {
     /*
@@ -84,7 +96,7 @@ static void Update_Game_State(void)
         game.bird_velocity = BIRD_FLAP_VELOCITY;
     }
 
-    /* Positive velocity moves down the matrix; gravity accelerates downward. */
+    /* Positive velocity is downward; gravity therefore increases velocity. */
     game.bird_velocity += BIRD_GRAVITY;
 
     if(game.bird_velocity > BIRD_TERMINAL_VELOCITY)
@@ -94,10 +106,7 @@ static void Update_Game_State(void)
 
     game.bird_position += game.bird_velocity;
 
-    /*
-     * Clamp at the display boundaries for this early game stage. Collision
-     * and game-over handling can replace these clamps when pipes are added.
-     */
+    /* Clamp the fixed-point position so rendering cannot leave the matrix. */
     if(game.bird_position < BIRD_MIN_POSITION)
     {
         game.bird_position = BIRD_MIN_POSITION;
@@ -112,6 +121,9 @@ static void Update_Game_State(void)
     Update_Background_Breathing();
 }
 
+/**
+ * @brief Advance the background brightness breathing effect by one game tick.
+ */
 static void Update_Background_Breathing(void)
 {
     /*
@@ -127,6 +139,7 @@ static void Update_Background_Breathing(void)
 
     game.breathing_counter = 0;
 
+    /* Reverse direction at each limit to produce a triangular fade waveform. */
     if(game.brightness_step > 0)
     {
         if(game.background_brightness >= BACKGROUND_BRIGHTNESS_MAX)
@@ -153,18 +166,18 @@ static void Update_Background_Breathing(void)
     }
 }
 
+/**
+ * @brief Draw the background and bird into the LED framebuffer.
+ */
 static void Render_Game(void)
 {
-    /*
-     * Fill uses logical RGB values plus a low brightness scale, producing a
-     * dim purple background without repeated per-pixel drawing calls.
-     */
+    /* Apply brightness separately so the configured RGB hue remains intact. */
     LED_Fill(BACKGROUND_RED,
              BACKGROUND_GREEN,
              BACKGROUND_BLUE,
              game.background_brightness);
 
-    /* Round the fixed-point position to the nearest physical LED row. */
+    /* Adding half the scale rounds fixed-point position to the nearest row. */
     uint8_t bird_y =
         (uint8_t)((game.bird_position + (POSITION_SCALE / 2)) / POSITION_SCALE);
 
@@ -176,8 +189,12 @@ static void Render_Game(void)
                   BIRD_BRIGHTNESS);
 }
 
+/**
+ * @brief Run one non-blocking, frame-timed game update when the LEDs are ready.
+ */
 void Game_Task(void)
 {
+    /* Snapshot the tick so every timing decision in this pass is consistent. */
     uint32_t current_time = HAL_GetTick();
 
     /* Unsigned subtraction remains correct when the 32-bit HAL tick wraps. */
@@ -200,6 +217,7 @@ void Game_Task(void)
 
     if(LED_Transmit())
     {
+        /* Advance the schedule only after the driver accepts the new frame. */
         last_update_time = current_time;
     }
 }
