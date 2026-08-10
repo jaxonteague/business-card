@@ -106,6 +106,7 @@ int main(void)
   {
 
 	  Game_Task();
+	  __WFI();
 
 
     /* USER CODE END WHILE */

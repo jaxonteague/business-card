@@ -24,7 +24,7 @@ void Game_Init(void);
 void Game_Task(void);
 
 /**
- * @brief Record an active-low button press for the next game update.
+ * @brief Record a button press for the next flap or game-over restart.
  *
  * Safe to call from HAL_GPIO_EXTI_Falling_Callback(); the actual physics
  * update is deferred until Game_Task() runs in the main loop.
