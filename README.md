@@ -1,5 +1,10 @@
 # Business Card - Floppy Bird
 
+<p align="center">
+  <img src="docs/images/floppy-bird-gameplay.jpg" alt="Floppy Bird running on the LED business card" width="48%">
+  <img src="docs/images/floppy-bird-score.jpg" alt="Score displayed on the LED business card" width="48%">
+</p>
+
 I wanted my business card to do more than sit in someone's wallet, so I built
 one with a custom PCB, 128 RGB LEDs, and a playable game called **Floppy Bird**.
 It brings together PCB design, embedded C, real-time game logic, all displayed on
