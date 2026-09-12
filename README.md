@@ -1,69 +1,76 @@
-# LED Business Card
+# Business Card - LED Matrix Game
 
-An electronic business card built around an STM32C031 microcontroller and an
-8-by-16 addressable RGB LED matrix. The repository contains the KiCad hardware
-design, manufacturing files, and STM32 firmware for a button-controlled game.
+I designed this electronic business card as a compact demonstration of embedded
+systems development, PCB design, and product-focused engineering. Rather than a
+static printed card, it combines custom hardware with an interactive game on an
+8-by-16 RGB LED matrix.
 
-## Game
+## Project overview
 
-The firmware runs a compact side-scrolling game on the LED matrix:
+The card is built around an STM32C031 microcontroller and a custom PCB designed
+in KiCad. Its firmware runs a small side-scrolling game controlled by a physical
+button: the player guides a bird through moving pipes, earns points for successful
+passes, and receives immediate visual feedback after a collision.
 
-- Press the button to flap and guide the bird through the pipe gaps.
-- The bird is clipped to the top and bottom rows without losing a life.
-- The player starts with three lives, and the bird changes colour after each
-  collision.
-- A collided pipe flashes, is ignored for scoring, and the game continues.
-- Each pipe passed successfully adds one point.
-- Pipe speed increases across ten difficulty levels. The dim background changes
-  between blue and purple to indicate the current level.
-- When all lives are lost, the score is shown in large white digits for at least
-  three seconds. A new button press then starts another game.
+The project took the design from schematic capture and PCB layout through
+manufacturing outputs and embedded firmware. This repository records both the
+hardware and software sides of that process.
 
-All pipes are two LEDs wide. LED brightness is deliberately limited to reduce
-power consumption and eye strain.
+## Engineering highlights
 
-## Firmware
+- Designed the schematic and PCB for a dense 128-pixel addressable LED display.
+- Developed a framebuffer-based LED driver that converts RGB pixel data into the
+  WS2812 signalling format and transmits it using SPI with DMA.
+- Implemented non-blocking game logic with fixed-point bird physics, collision
+  detection, procedural pipe gaps, scoring, lives, and game-over states.
+- Created a ten-level difficulty system that gradually increases pipe speed and
+  changes the background colour to communicate progression.
+- Added a compact 5-by-7 numeric font so the final score can be rendered directly
+  on the constrained 16-by-8 display.
+- Used interrupt-driven input and cooperative frame updates to keep interrupt
+  handlers short and gameplay responsive.
+- Put the Cortex-M0+ core into sleep between interrupts to reduce processor power
+  consumption while retaining timer, button, and DMA responsiveness.
+- Tuned LED intensity for practical power consumption and comfortable viewing,
+  including a minimum non-zero background brightness.
 
-The firmware targets an **STM32C031G6UX** and was generated with STM32CubeMX for
-use in STM32CubeIDE. Application code is separated from generated peripheral
-initialization:
+## Design decisions
 
-- `Core/Src/game.c` contains game state, physics, collision detection, scoring,
-  difficulty progression, and rendering.
-- `Core/Inc/config.h` contains the adjustable gameplay, timing, colour, and
-  brightness settings.
-- `Core/Src/led.c` drives the LED matrix by encoding WS2812 data for SPI DMA.
-- `Core/Src/main.c` initializes the application, services the game task, and
-  sleeps between interrupts to reduce processor power consumption.
+The display is physically wired in a serpentine arrangement, so the LED driver
+maps logical `(x, y)` coordinates to physical chain positions. This keeps the
+game and rendering code independent of PCB routing.
 
-The LED framebuffer is transmitted without blocking normal game updates. The
-display uses serpentine row mapping to match the physical PCB routing.
+Game motion uses fixed-point arithmetic rather than floating point. That provides
+smoother movement than whole-row updates while remaining appropriate for a small
+Cortex-M0+ microcontroller. Fractional accumulators also provide fine control of
+gravity and pipe speed without adding floating-point overhead.
 
-### Building
+Rendering and game state are separated from the hardware driver. Adjustable
+timing, physics, colour, and brightness values are centralized in a configuration
+header, while implementation-specific state remains private to the game module.
+CubeMX-generated peripheral code is kept separate from application-owned logic.
 
-1. Open STM32CubeIDE.
-2. Import `microcontroller/business card` as an existing project.
-3. Select the Debug configuration and build the project.
-4. Program the board with an ST-LINK-compatible debugger.
+## Gameplay details
 
-The CubeMX configuration is stored in
-`microcontroller/business card/business card.ioc`. Application changes should
-remain inside CubeMX user-code regions or in application-owned files so code
-regeneration does not overwrite them.
+The player starts with three lives. Hitting a pipe flashes the obstacle, changes
+the bird's colour, and prevents that pipe from being counted toward the score.
+Touching the top or bottom of the display only clips the bird to the boundary and
+does not cost a life. After the final collision, the score remains visible for at
+least three seconds and a fresh button press starts a new game.
 
-## Hardware
+## Technologies and skills demonstrated
 
-The root KiCad files contain the schematic and PCB layout. Manufacturing outputs
-are under `jlcpcb/`, including Gerbers, drill files, bill of materials, and
-component placement data.
+- Embedded C
+- STM32CubeMX and STM32CubeIDE
+- STM32 HAL, GPIO interrupts, SPI, DMA, and low-power wait-for-interrupt operation
+- Real-time state machines and fixed-point arithmetic
+- Addressable RGB LED control and framebuffer rendering
+- KiCad schematic capture and PCB layout
+- Design-for-manufacture outputs including Gerbers, BOM, and placement data
+- Hardware-aware debugging, power management, and iterative user-experience tuning
 
-## Repository layout
+## Repository contents
 
-```text
-.
-|-- business card.kicad_pcb       PCB layout
-|-- business card.kicad_sch       Main schematic
-|-- datasheets/                   Component documentation
-|-- jlcpcb/                       PCB manufacturing outputs
-`-- microcontroller/business card STM32CubeIDE firmware project
-```
+The `pcb` directory contains the KiCad schematic, PCB design, custom footprint,
+and JLCPCB manufacturing outputs. The STM32 firmware is in
+`microcontroller/business card`.
