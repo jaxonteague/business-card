@@ -1,0 +1,16 @@
+# KiCad automatic history and backup archives
+.history/
+**/.history/
+*-backups/
+**/*-backups/
+
+# STM32CubeIDE build output
+**/Debug/
+**/Release/
+
+# Local IDE settings
+**/.settings/
+*.launch
+
+# Temporary report files
+*.rpt
