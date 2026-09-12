@@ -93,7 +93,6 @@
 		)
 		(capping no)
 		(filling no)
-		(zone_defaults)
 		(pcbplotparams
 			(layerselection 0x00000000_00000000_55555555_5755f5ff)
 			(plot_on_all_layers_selection 0x00000000_00000000_00000000_00000000)
@@ -47169,6 +47168,7 @@
 			(effects
 				(font
 					(size 1.27 1.27)
+					(thickness 0.15)
 				)
 			)
 		)
@@ -55991,7 +55991,7 @@
 			(justify left bottom)
 		)
 	)
-	(gr_text "0455166930"
+	(gr_text "04xxxxxxxx"
 		(at 16 72.301602 0)
 		(layer "F.SilkS")
 		(uuid "bdec8088-e74d-49a2-bb51-7dff2ceb4748")
@@ -56002,7 +56002,7 @@
 			(justify left bottom)
 		)
 	)
-	(gr_text "jaxonteague@hotmail.com"
+	(gr_text "xxxxxxxxxxx@hotmail.com"
 		(at 16 76.1 0)
 		(layer "F.SilkS")
 		(uuid "afca2319-f785-48d0-92c3-a1dac9e5af38")

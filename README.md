@@ -1,76 +1,92 @@
-# Business Card - LED Matrix Game
+# Business Card - Floppy Bird
 
-I designed this electronic business card as a compact demonstration of embedded
-systems development, PCB design, and product-focused engineering. Rather than a
-static printed card, it combines custom hardware with an interactive game on an
-8-by-16 RGB LED matrix.
+I wanted my business card to do more than sit in someone's wallet, so I built
+one with a custom PCB, 128 RGB LEDs, and a playable game called **Floppy Bird**.
+It brings together PCB design, embedded C, real-time game logic, all displayed on
+a 16x8 custom led mattrix display.
 
-## Project overview
+## What it does
 
-The card is built around an STM32C031 microcontroller and a custom PCB designed
-in KiCad. Its firmware runs a small side-scrolling game controlled by a physical
-button: the player guides a bird through moving pipes, earns points for successful
-passes, and receives immediate visual feedback after a collision.
+Floppy Bird is controlled with a single physical button. Pressing it makes the
+bird flap while two-pixel-wide pipes move across the display. Passing a pipe
+earns a point, and the game gradually speeds up across ten difficulty levels.
 
-The project took the design from schematic capture and PCB layout through
-manufacturing outputs and embedded firmware. This repository records both the
-hardware and software sides of that process.
+The player gets three lives. Once all three lives are gone, the final score
+appears.
 
-## Engineering highlights
+## What I built
 
-- Designed the schematic and PCB for a dense 128-pixel addressable LED display.
-- Developed a framebuffer-based LED driver that converts RGB pixel data into the
-  WS2812 signalling format and transmits it using SPI with DMA.
-- Implemented non-blocking game logic with fixed-point bird physics, collision
-  detection, procedural pipe gaps, scoring, lives, and game-over states.
-- Created a ten-level difficulty system that gradually increases pipe speed and
-  changes the background colour to communicate progression.
-- Added a compact 5-by-7 numeric font so the final score can be rendered directly
-  on the constrained 16-by-8 display.
-- Used interrupt-driven input and cooperative frame updates to keep interrupt
-  handlers short and gameplay responsive.
-- Put the Cortex-M0+ core into sleep between interrupts to reduce processor power
-  consumption while retaining timer, button, and DMA responsiveness.
-- Tuned LED intensity for practical power consumption and comfortable viewing,
-  including a minimum non-zero background brightness.
+- A custom KiCad schematic and PCB for an STM32C031 and 8x16 addressable RGB
+  LED matrix.
+- A framebuffer-based LED driver that converts RGB values into WS2812 data and
+  sends each frame using SPI with DMA.
+- Non-blocking game logic covering bird physics, random pipe gaps, collisions,
+  lives, scoring, difficulty progression, and game-over handling.
+- Interrupt-driven button input with the actual game update kept in the main
+  loop, keeping the interrupt handler short.
+- Low-power idle time using the Cortex-M0+ wait-for-interrupt instruction.
+- Production files including Gerbers, a bill of materials, and component
+  placement data.
 
-## Design decisions
+## Hardware
 
-The display is physically wired in a serpentine arrangement, so the LED driver
-maps logical `(x, y)` coordinates to physical chain positions. This keeps the
-game and rendering code independent of PCB routing.
+At the centre of the card is an STM32C031, a small Cortex-M0+ microcontroller
+that handles the game, button input, and LED data. The display is made from 128
+individually addressable RGB LEDs arranged as 16 columns by 8 rows. A single
+physical button provides the game input, keeping the interface simple and making
+the card immediately playable.
 
-Game motion uses fixed-point arithmetic rather than floating point. That provides
-smoother movement than whole-row updates while remaining appropriate for a small
-Cortex-M0+ microcontroller. Fractional accumulators also provide fine control of
-gravity and pipe speed without adding floating-point overhead.
+The card is powered by two AAA batteries. A boost converter raises the battery
+voltage to 5 V for the LED matrix, while an LDO steps that rail down to 3.3 V for
+the microcontroller. Because the STM32 and LEDs operate at different logic
+levels, a level converter shifts the 3.3 V SPI data signal up to 5 V before it
+reaches the LEDs. The button input is debounced in hardware with an RC filter so
+a single press produces a clean, reliable transition.
 
-Rendering and game state are separated from the hardware driver. Adjustable
-timing, physics, colour, and brightness values are centralized in a configuration
-header, while implementation-specific state remains private to the game module.
-CubeMX-generated peripheral code is kept separate from application-owned logic.
+The LEDs share one serial data chain and are updated from an SPI peripheral using
+DMA. This lets the microcontroller transfer a complete frame in the background
+instead of spending all of its time manually generating the LED waveform.
 
-## Gameplay details
+Power consumption was an important part of the design because 128 RGB LEDs can
+draw a lot of current at full output. The firmware keeps brightness deliberately
+low, and the hardware includes local decoupling for the LED supply.
 
-The player starts with three lives. Hitting a pipe flashes the obstacle, changes
-the bird's colour, and prevents that pipe from being counted toward the score.
-Touching the top or bottom of the display only clips the bird to the boundary and
-does not cost a life. After the final collision, the score remains visible for at
-least three seconds and a fresh button press starts a new game.
+While the led matrix is cool, it is quite power hungry. Drawing 3/4W, the display
+will run for 4-6 hours from 2x AAA batteries.
 
-## Technologies and skills demonstrated
+PCB is 2 layer double sided. The matrix is connected in alternate directions so
+as to simpliy routing and avoid unnecessary trace lengths.
+
+## A few interesting details
+
+The LEDs are routed in a serpentine pattern on the PCB. The driver translates
+normal `(x, y)` coordinates into the physical LED order, so the game code does
+not need to know how the traces are laid out.
+
+The bird uses fixed-point physics instead of floating point. This makes its
+movement smoother than jumping directly between the eight rows while staying
+lightweight for the Cortex-M0+ microcontroller. Fractional accumulators give
+fine control over gravity and pipe speed without floating-point overhead.
+
+The firmware is split into small modules: game logic and rendering are separate
+from the LED driver, and adjustable gameplay values live in one configuration
+header.
+
+The leds are very bright, so to same battery and eyesight, they are set to very
+low brightness.
+
+## Tools and technologies
 
 - Embedded C
+- STM32C031 microcontroller
 - STM32CubeMX and STM32CubeIDE
-- STM32 HAL, GPIO interrupts, SPI, DMA, and low-power wait-for-interrupt operation
-- Real-time state machines and fixed-point arithmetic
-- Addressable RGB LED control and framebuffer rendering
+- GPIO interrupts, SPI, DMA, and low-power operation
+- WS2812-compatible RGB LEDs
+- Fixed-point arithmetic and real-time state machines
 - KiCad schematic capture and PCB layout
-- Design-for-manufacture outputs including Gerbers, BOM, and placement data
-- Hardware-aware debugging, power management, and iterative user-experience tuning
+- Design-for-manufacture files for JLCPCB
 
 ## Repository contents
 
-The `pcb` directory contains the KiCad schematic, PCB design, custom footprint,
-and JLCPCB manufacturing outputs. The STM32 firmware is in
-`microcontroller/business card`.
+The `pcb` folder contains the KiCad design and manufacturing files. The STM32
+firmware is in `microcontroller/business card`.
